@@ -17,6 +17,12 @@ struct Rep: Codable, Equatable, Identifiable {
     /// Ended by the max-duration limit rather than a held finish.
     var timedOut: Bool
     var review: Review = .unreviewed
+    /// Automatic phase analysis. Optional so sessions saved before M2 still load.
+    var analysis: PhaseAnalysis? = nil
+    /// Boundaries the user adjusted by hand; used instead of the automatic ones.
+    var manualPhases: SwingPhases? = nil
+    /// Time-normalized curve from the boundaries in use, for baseline comparison.
+    var signature: [Double]? = nil
 
     var duration: Double { end - start }
 }

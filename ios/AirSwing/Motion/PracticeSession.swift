@@ -19,17 +19,17 @@ final class PracticeSession: ObservableObject {
     @Published private(set) var waggleCount = 0
     @Published private(set) var warning: String?
     @Published private(set) var lastSaved: SessionRecord?
-    @Published var speakReady = true
-
-    let settings = DetectionSettings()
 
     /// Seconds without samples before the session warns that motion stopped.
     static let stallTimeout = 1.5
 
     private let motion: MotionSource
     private let store: SessionStore
+    private let settings: AppSettings
+    private let baselines: BaselineStore
     private let speech = AVSpeechSynthesizer()
 
+    private(set) var detection = DetectionSettings()
     private var samples: [Sample] = []
     private var events: [SessionEvent] = []
     private var startUptime = 0.0
@@ -41,9 +41,11 @@ final class PracticeSession: ObservableObject {
     private var stalled = false
     private var stallTimer: Timer?
 
-    init(motion: MotionSource, store: SessionStore) {
+    init(motion: MotionSource, store: SessionStore, settings: AppSettings, baselines: BaselineStore) {
         self.motion = motion
         self.store = store
+        self.settings = settings
+        self.baselines = baselines
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
         motion.onSample = { [weak self] in self?.handle($0) }
         motion.onDisconnect = { [weak self] in self?.stop(reason: .disconnected) }
@@ -53,9 +55,16 @@ final class PracticeSession: ObservableObject {
         phase == .holdingAddress || phase == .practiceSwing || phase == .practicing
     }
 
+    var baseline: Baseline? { baselines.baseline(settings.values.activeBaselineID) }
+
+    var stats: SessionStats {
+        SessionStats.compute(reps, baseline: baseline, target: settings.values.activeTarget)
+    }
+
     func start() {
         guard !isActive else { return }
         motion.start()
+        detection = settings.values.detection
         samples.removeAll()
         events.removeAll()
         reps.removeAll()
@@ -68,7 +77,7 @@ final class PracticeSession: ObservableObject {
         startUptime = ProcessInfo.processInfo.systemUptime
         lastSampleUptime = startUptime
         startedAt = Date()
-        calibrator = AddressCalibrator(stillSpeed: settings.stillSpeed)
+        calibrator = AddressCalibrator(stillSpeed: detection.stillSpeed)
         holdProgress = 0
         phase = .holdingAddress
         log("session started; connected=\(motion.isConnected) permission=\(motion.authorizationText)")
@@ -98,7 +107,7 @@ final class PracticeSession: ObservableObject {
             startedAt: startedAt,
             device: "\(UIDevice.current.model) iOS \(UIDevice.current.systemVersion)",
             sensors: Array(Set(samples.map(\.sensor))).sorted(),
-            settings: settings,
+            settings: detection,
             calibration: calibration,
             reps: reps,
             events: events,
@@ -112,6 +121,7 @@ final class PracticeSession: ObservableObject {
             warning = "Could not save the session: \(error.localizedDescription)"
         }
         detectorState = .notReady
+        readyHint = nil
         phase = .finished
     }
 
@@ -132,7 +142,7 @@ final class PracticeSession: ObservableObject {
             guard let calibrator else { return }
             if let result = calibrator.process(s) {
                 calibration = result
-                detector = ReadyDetector(address: result.address, settings: settings)
+                detector = ReadyDetector(address: result.address, settings: detection)
                 log(String(format: "address set; rest noise %.3f rad/s", result.restNoise))
                 phase = .practiceSwing
             }
@@ -160,7 +170,7 @@ final class PracticeSession: ObservableObject {
         switch event {
         case .ready(let t):
             log("ready", at: t)
-            if speakReady { say("Ready") }
+            if settings.values.speakReady { say("Ready") }
         case .lostReady(let t):
             log("left address", at: t)
         case .swingStarted(let t):
@@ -168,19 +178,28 @@ final class PracticeSession: ObservableObject {
         case .waggle(let t):
             waggleCount += 1
             log("waggle ignored", at: t)
-        case .rep(let rep):
-            let summary = String(format: "swing %.2f-%.2f s; peak %.1f rad/s", rep.start, rep.end, rep.peakSpeed)
-            log(summary + (rep.possiblyClipped ? "; possibly clipped" : ""), at: rep.end)
+        case .rep(let detected):
+            let summary = String(format: "swing %.2f-%.2f s; peak %.1f rad/s", detected.start, detected.end, detected.peakSpeed)
+            log(summary + (detected.possiblyClipped ? "; possibly clipped" : ""), at: detected.end)
+
             if phase == .practiceSwing {
-                calibration?.practiceRep = rep
-                if let peak = samples.last(where: { $0.t == rep.peakTime }) {
+                calibration?.practiceRep = detected
+                if let peak = samples.last(where: { $0.t == detected.peakTime }) {
                     let dominant = SwingAxis.dominant(peak)
                     calibration?.downswingAxis = dominant.axis
                     calibration?.downswingSign = dominant.sign
                 }
                 phase = .practicing
+                return
+            }
+
+            let rep = SwingAnalyzer.analyzed(detected, samples: samples, calibration: calibration, settings: detection)
+            reps.append(rep)
+            if let tempo = rep.tempoRatio {
+                log(String(format: "tempo %.2f:1", tempo), at: detected.end)
+                if settings.values.speakTempo { say(String(format: "%.1f", tempo)) }
             } else {
-                reps.append(rep)
+                log("tempo unclear: " + (rep.analysis?.issues.joined(separator: " ") ?? ""), at: detected.end)
             }
         }
     }

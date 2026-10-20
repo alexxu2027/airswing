@@ -3,18 +3,20 @@ import SwiftUI
 struct PracticeView: View {
     @ObservedObject var practice: PracticeSession
     @ObservedObject var motion: MotionSource
+    @ObservedObject var settings: AppSettings
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                switch practice.phase {
-                case .idle, .finished: startPanel
-                case .holdingAddress: holdPanel
-                case .practiceSwing, .practicing: swingPanel
+            ScrollView {
+                VStack(spacing: 20) {
+                    switch practice.phase {
+                    case .idle, .finished: startPanel
+                    case .holdingAddress: holdPanel
+                    case .practiceSwing, .practicing: swingPanel
+                    }
                 }
+                .padding()
             }
-            .padding()
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .navigationTitle("Practice")
         }
     }
@@ -47,9 +49,21 @@ struct PracticeView: View {
             .font(.subheadline)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Toggle("Say \"Ready\" out loud", isOn: $practice.speakReady)
-
-            Spacer()
+            VStack(spacing: 12) {
+                Toggle("Tempo drill", isOn: $settings.values.tempoTargetEnabled)
+                if settings.values.tempoTargetEnabled {
+                    Stepper(String(format: "Target %.1f : 1", settings.values.tempoTarget),
+                            value: $settings.values.tempoTarget, in: 1.5...4.0, step: 0.1)
+                    Text("A target you choose for practice, not a universal ideal.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                HStack {
+                    Text("Baseline")
+                    Spacer()
+                    Text(practice.baseline?.name ?? "None").foregroundStyle(.secondary)
+                }
+            }
 
             Button {
                 practice.start()
@@ -72,15 +86,16 @@ struct PracticeView: View {
                 .font(.title2.bold())
                 .foregroundStyle(practice.holdIsStill ? .green : .secondary)
             warningBanner
-            Spacer()
             stopButton
         }
     }
 
     private var swingPanel: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             if practice.phase == .practiceSwing {
                 stepHeader("Step 2 of 2", "One slow practice swing")
+                Text("This teaches AirSwing which way your swing turns.")
+                    .font(.footnote).foregroundStyle(.secondary)
                 Button("Skip practice swing") { practice.skipPracticeSwing() }
                     .font(.footnote)
             }
@@ -88,7 +103,7 @@ struct PracticeView: View {
             Text(stateText)
                 .font(.system(size: 44, weight: .heavy))
                 .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, minHeight: 180)
+                .frame(maxWidth: .infinity, minHeight: 150)
                 .background(stateColor, in: RoundedRectangle(cornerRadius: 20))
                 .animation(.easeInOut(duration: 0.15), value: practice.detectorState)
 
@@ -97,24 +112,57 @@ struct PracticeView: View {
                 .foregroundStyle(.secondary)
 
             if practice.phase == .practicing {
+                lastSwingCard
                 HStack {
                     stat("Swings", "\(practice.reps.count)")
-                    stat("Last", practice.reps.last.map { String(format: "%.2f s", $0.duration) } ?? "—")
+                    stat("Median", practice.stats.medianTempo.map { String(format: "%.1f:1", $0) } ?? "—")
                     stat("Waggles", "\(practice.waggleCount)")
-                }
-                if practice.reps.last?.possiblyClipped == true {
-                    Text("Last swing may have exceeded the sensor's range. Swing a little slower.")
-                        .font(.footnote).foregroundStyle(.orange).multilineTextAlignment(.center)
                 }
             }
 
             warningBanner
-            Spacer()
             stopButton
         }
     }
 
+    @ViewBuilder private var lastSwingCard: some View {
+        if let rep = practice.reps.last {
+            VStack(spacing: 6) {
+                if let p = rep.effectivePhases {
+                    Text(String(format: "%.1f : 1", p.tempoRatio))
+                        .font(.system(size: 40, weight: .bold).monospacedDigit())
+                        .foregroundStyle(tempoColor(p.tempoRatio))
+                    Text(String(format: "Back %.2f s · Down %.2f s", p.backswing, p.downswing))
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    if let target = settings.values.activeTarget {
+                        Text(String(format: "Target %.1f : 1", target)).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let baseline = practice.baseline, let c = Comparison.make(rep, to: baseline) {
+                        Text(String(format: "%.0f%% shape match to ", c.shapeMatch) + baseline.name)
+                            .font(.subheadline)
+                    }
+                } else {
+                    Text("Tempo unclear").font(.title2.bold())
+                    Text(rep.analysis?.issues.first ?? "Phases couldn't be found reliably.")
+                        .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                }
+                if rep.possiblyClipped {
+                    Text("This swing may have exceeded the sensor's range. Swing a little slower.")
+                        .font(.footnote).foregroundStyle(.orange).multilineTextAlignment(.center)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
     // MARK: Pieces
+
+    private func tempoColor(_ tempo: Double) -> Color {
+        guard let target = settings.values.activeTarget else { return .primary }
+        return abs(tempo - target) <= target * SessionStats.targetTolerance ? .green : .orange
+    }
 
     private var stateText: String {
         switch practice.detectorState {
@@ -167,6 +215,7 @@ struct PracticeView: View {
         }
         .buttonStyle(.borderedProminent)
         .tint(.red)
+        .padding(.top, 8)
     }
 
     private func stepHeader(_ step: String, _ title: String) -> some View {
