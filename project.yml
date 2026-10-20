@@ -8,21 +8,21 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "0.2.0"
     CURRENT_PROJECT_VERSION: "1"
 targets:
-  AirSwingProbe:
+  AirSwing:
     type: application
     platform: iOS
     sources:
-      - ios/AirSwingProbe
+      - ios/AirSwing
     info:
-      path: ios/AirSwingProbe/Info.plist
+      path: ios/AirSwing/Info.plist
       properties:
-        CFBundleDisplayName: AirSwing Probe
+        CFBundleDisplayName: AirSwing
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        NSMotionUsageDescription: AirSwing Probe reads AirPods motion to test whether a handheld earbud can track practice swings.
+        NSMotionUsageDescription: AirSwing reads AirPods motion to measure your practice swings.
         UILaunchScreen: {}
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
@@ -30,5 +30,18 @@ targets:
           - UIInterfaceOrientationPortrait
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.alexxu2027.airswing.probe
+        PRODUCT_BUNDLE_IDENTIFIER: com.alexxu2027.airswing
         TARGETED_DEVICE_FAMILY: "1"
+    scheme:
+      testTargets:
+        - AirSwingTests
+  AirSwingTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - ios/AirSwingTests
+    dependencies:
+      - target: AirSwing
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES

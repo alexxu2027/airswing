@@ -1,6 +1,6 @@
 name: iOS build
 
-# Builds an unsigned AirSwingProbe.ipa on a GitHub-hosted Mac.
+# Runs the unit tests on a simulator, then builds an unsigned AirSwing.ipa on a GitHub-hosted Mac.
 # Download it from the run's Artifacts section and sign/install it with Sideloadly.
 on:
   push:
@@ -24,11 +24,25 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      - name: Run unit tests
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          print(next(d["udid"] for runtime, ds in devices.items() if "iOS" in runtime
+                     for d in ds if d["name"].startswith("iPhone")))')
+          xcodebuild test \
+            -project AirSwing.xcodeproj \
+            -scheme AirSwing \
+            -destination "id=$UDID" \
+            -derivedDataPath build-test \
+            CODE_SIGNING_ALLOWED=NO
+
       - name: Build for iPhone (unsigned)
         run: |
           xcodebuild build \
             -project AirSwing.xcodeproj \
-            -scheme AirSwingProbe \
+            -scheme AirSwing \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
@@ -40,11 +54,11 @@ jobs:
       - name: Package .ipa
         run: |
           mkdir Payload
-          cp -R build/Build/Products/Release-iphoneos/AirSwingProbe.app Payload/
-          zip -qr AirSwingProbe.ipa Payload
+          cp -R build/Build/Products/Release-iphoneos/AirSwing.app Payload/
+          zip -qr AirSwing.ipa Payload
 
       - uses: actions/upload-artifact@v4
         with:
-          name: AirSwingProbe-ipa
-          path: AirSwingProbe.ipa
+          name: AirSwing-ipa
+          path: AirSwing.ipa
           retention-days: 30
