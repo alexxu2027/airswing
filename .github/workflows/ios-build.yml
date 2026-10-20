@@ -1,0 +1,50 @@
+name: iOS build
+
+# Builds an unsigned AirSwingProbe.ipa on a GitHub-hosted Mac.
+# Download it from the run's Artifacts section and sign/install it with Sideloadly.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - "project.yml"
+      - ".github/workflows/ios-build.yml"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build for iPhone (unsigned)
+        run: |
+          xcodebuild build \
+            -project AirSwing.xcodeproj \
+            -scheme AirSwingProbe \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package .ipa
+        run: |
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/AirSwingProbe.app Payload/
+          zip -qr AirSwingProbe.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AirSwingProbe-ipa
+          path: AirSwingProbe.ipa
+          retention-days: 30

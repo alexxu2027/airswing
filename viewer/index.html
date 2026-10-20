@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AirSwing Viewer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f7f7f5; --surface: #ffffff; --text: #1d1d1f; --muted: #6b6b70;
+    --border: #e2e2e0; --accent: #2563eb; --pass: #15803d; --fail: #b91c1c;
+    --s1: #2563eb; --s2: #d97706; --s3: #059669; --s4: #1d1d1f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --surface: #1d1d20; --text: #ececee; --muted: #9a9aa2;
+      --border: #2e2e33; --accent: #60a5fa; --pass: #4ade80; --fail: #f87171;
+      --s1: #60a5fa; --s2: #fbbf24; --s3: #34d399; --s4: #ececee;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1000px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  p.lede { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+          padding: 16px; margin-bottom: 16px; }
+  #drop { border: 2px dashed var(--border); border-radius: 10px; padding: 28px 16px;
+          text-align: center; color: var(--muted); cursor: pointer; }
+  #drop.over { border-color: var(--accent); color: var(--accent); }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; }
+  td.num { font-variant-numeric: tabular-nums; }
+  tr.file { cursor: pointer; }
+  tr.file.selected td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .pass { color: var(--pass); } .fail { color: var(--fail); }
+  .chart { position: relative; height: 260px; }
+  ul.events { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+  .meta { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>AirSwing Viewer</h1>
+  <p class="lede">Open CSV recordings exported from AirSwing Probe to check sample rate, gaps and motion against the Gate 0A/0B targets. Files stay in your browser; nothing is uploaded.</p>
+
+  <div class="card">
+    <div id="drop">Drop CSV files here or click to choose<input id="picker" type="file" accept=".csv" multiple hidden></div>
+  </div>
+
+  <div class="card hidden" id="summary">
+    <h2>Recordings</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>File</th><th>Condition</th><th>Samples</th><th>Duration</th><th>Rate</th>
+          <th>Gaps</th><th>Longest gap</th><th>Est. dropout</th><th>Gate check</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <p class="meta">Gate check: duration ≥ 30 s, rate ≥ 20 Hz, estimated dropout &lt; 5%. Dropout is estimated from intervals longer than the median.</p>
+  </div>
+
+  <div class="hidden" id="detail">
+    <div class="card">
+      <h2 id="detailTitle"></h2>
+      <div class="meta" id="detailMeta"></div>
+      <div class="chart"><canvas id="rotChart"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Sample interval</h2>
+      <div class="chart"><canvas id="intChart"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Events</h2>
+      <ul class="events" id="events"></ul>
+    </div>
+  </div>
+</main>
+
+<script>
+const recordings = [];
+let charts = [];
+
+const drop = document.getElementById('drop');
+const picker = document.getElementById('picker');
+drop.addEventListener('click', () => picker.click());
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); load(e.dataTransfer.files); });
+picker.addEventListener('change', () => load(picker.files));
+
+async function load(files) {
+  for (const file of files) recordings.push(parse(file.name, await file.text()));
+  renderTable();
+  select(recordings.length - 1);
+}
+
+function parse(name, text) {
+  const meta = {}, events = [], samples = [];
+  let header = null;
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    if (line.startsWith('# event,')) {
+      const [, t, ...msg] = line.slice(2).split(',');
+      events.push({ t: +t, text: msg.join(',') });
+    } else if (line.startsWith('#')) {
+      const m = line.slice(1).trim().match(/^([\w ]+?)=(.*)$/);
+      if (m) meta[m[1]] = m[2];
+    } else if (!header) {
+      header = line.split(',');
+    } else {
+      const cells = line.split(',');
+      const row = {};
+      header.forEach((h, i) => row[h] = h === 'sensor' ? cells[i] : +cells[i]);
+      samples.push(row);
+    }
+  }
+  return { name, meta, events, samples, stats: stats(samples) };
+}
+
+function stats(samples) {
+  const n = samples.length;
+  const intervals = [];
+  for (let i = 1; i < n; i++) intervals.push(samples[i].timestamp_s - samples[i - 1].timestamp_s);
+  const sorted = [...intervals].sort((a, b) => a - b);
+  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+  const duration = n > 1 ? samples[n - 1].timestamp_s - samples[0].timestamp_s : 0;
+  const rate = duration > 0 ? (n - 1) / duration : 0;
+  const gaps = intervals.filter(d => d > 0.1).length;
+  const maxInterval = sorted.length ? sorted[sorted.length - 1] : 0;
+  let missing = 0;
+  if (median > 0) for (const d of intervals) missing += Math.max(0, Math.round(d / median) - 1);
+  const dropout = n + missing > 0 ? missing / (n + missing) : 0;
+  const pass = { duration: duration >= 30, rate: rate >= 20, dropout: dropout < 0.05 };
+  return { n, duration, rate, median, gaps, maxInterval, dropout, intervals, pass };
+}
+
+function renderTable() {
+  document.getElementById('summary').classList.remove('hidden');
+  const rows = document.getElementById('rows');
+  rows.innerHTML = '';
+  recordings.forEach((r, i) => {
+    const s = r.stats;
+    const ok = s.pass.duration && s.pass.rate && s.pass.dropout;
+    const tr = document.createElement('tr');
+    tr.className = 'file';
+    tr.innerHTML = `
+      <td>${esc(r.name)}</td><td>${esc(r.meta.condition || '—')}</td>
+      <td class="num">${s.n}</td>
+      <td class="num ${cls(s.pass.duration)}">${s.duration.toFixed(1)} s</td>
+      <td class="num ${cls(s.pass.rate)}">${s.rate.toFixed(1)} Hz</td>
+      <td class="num">${s.gaps}</td>
+      <td class="num">${(s.maxInterval * 1000).toFixed(0)} ms</td>
+      <td class="num ${cls(s.pass.dropout)}">${(s.dropout * 100).toFixed(1)}%</td>
+      <td class="${cls(ok)}">${ok ? 'Pass' : 'Fail'}</td>`;
+    tr.addEventListener('click', () => select(i));
+    rows.appendChild(tr);
+  });
+}
+
+function select(i) {
+  const r = recordings[i];
+  if (!r) return;
+  [...document.querySelectorAll('tr.file')].forEach((tr, j) => tr.classList.toggle('selected', j === i));
+  document.getElementById('detail').classList.remove('hidden');
+  document.getElementById('detailTitle').textContent = r.name;
+  document.getElementById('detailMeta').textContent =
+    [r.meta.app, r.meta.device, r.meta.started].filter(Boolean).join(' · ');
+  document.getElementById('events').innerHTML = r.events.length
+    ? r.events.map(e => `<li>${e.t.toFixed(2)} s — ${esc(e.text)}</li>`).join('')
+    : '<li>No events logged</li>';
+  drawCharts(r);
+}
+
+function drawCharts(r) {
+  charts.forEach(c => c.destroy());
+  const css = getComputedStyle(document.documentElement);
+  const color = v => css.getPropertyValue(v).trim();
+  const t = r.samples.map(s => s.timestamp_s);
+  const series = (key, label, c) => ({
+    label, borderColor: color(c), borderWidth: 1.25, pointRadius: 0,
+    data: r.samples.map((s, i) => ({ x: t[i], y: key(s) })),
+  });
+  const options = (yTitle) => ({
+    animation: false, responsive: true, maintainAspectRatio: false, parsing: false,
+    interaction: { mode: 'nearest', axis: 'x', intersect: false },
+    scales: {
+      x: { type: 'linear', title: { display: true, text: 'seconds', color: color('--muted') },
+           ticks: { color: color('--muted') }, grid: { color: color('--border') } },
+      y: { title: { display: true, text: yTitle, color: color('--muted') },
+           ticks: { color: color('--muted') }, grid: { color: color('--border') } },
+    },
+    plugins: { legend: { labels: { color: color('--text'), boxWidth: 12 } } },
+  });
+
+  charts = [
+    new Chart(document.getElementById('rotChart'), {
+      type: 'line',
+      data: { datasets: [
+        series(s => s.rot_x, 'x', '--s1'),
+        series(s => s.rot_y, 'y', '--s2'),
+        series(s => s.rot_z, 'z', '--s3'),
+        series(s => Math.hypot(s.rot_x, s.rot_y, s.rot_z), 'speed', '--s4'),
+      ] },
+      options: options('rotation rate (rad/s)'),
+    }),
+    new Chart(document.getElementById('intChart'), {
+      type: 'line',
+      data: { datasets: [{
+        label: 'interval', borderColor: color('--s1'), borderWidth: 1.25, pointRadius: 0,
+        data: r.stats.intervals.map((d, i) => ({ x: t[i + 1], y: d * 1000 })),
+      }] },
+      options: options('ms between samples'),
+    }),
+  ];
+}
+
+const cls = ok => ok ? 'pass' : 'fail';
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+</script>
+</body>
+</html>
