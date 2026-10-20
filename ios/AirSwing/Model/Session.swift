@@ -37,11 +37,13 @@ struct Calibration: Codable, Equatable {
 
 struct DetectionSettings: Codable, Equatable {
     /// Smoothed rotation speed below this counts as still (rad/s).
-    var stillSpeed = 0.3
+    /// M0 address pauses mostly sat at 0.2–0.5, so 0.3 was too strict.
+    var stillSpeed = 0.5
     /// How long to stay still at address before Ready (s).
-    var readyHold = 1.0
-    /// How close to the calibrated address orientation counts as "at address".
-    var addressToleranceDegrees = 20.0
+    var readyHold = 0.8
+    /// How close to the address orientation counts as "at address".
+    /// M0 address poses varied by up to 24° between swings.
+    var addressToleranceDegrees = 35.0
     /// Smoothed speed that starts a swing from Ready (rad/s).
     var swingStartSpeed = 1.0
     /// Movements that never get faster than this are waggles, not swings (rad/s).

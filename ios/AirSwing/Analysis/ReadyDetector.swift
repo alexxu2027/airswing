@@ -16,13 +16,25 @@ final class ReadyDetector {
         case rep(Rep)
     }
 
-    let address: Quat
+    /// Calibrated address blended with the poses the user actually swung from, so it follows
+    /// natural setup changes over a session.
+    private(set) var address: Quat
     let settings: DetectionSettings
     private(set) var state: State = .notReady
+    /// Latest smoothed rotation speed (rad/s) and distance from address (degrees), for on-screen hints.
+    private(set) var smoothedSpeed = 0.0
+    private(set) var degreesFromAddress = 0.0
 
+    /// How many recent swing-start poses are blended into the address.
+    static let addressMemory = 4
+
+    private let calibratedAddress: Quat
+    private var recentAddresses: [Quat] = []
     private var smoother = SpeedSmoother()
     private var stateSince = 0.0
     private var lastStillTime = 0.0
+    private var lastStillPose = Quat.identity
+    private var swingStartPose = Quat.identity
     private var readyTime = 0.0
     private var swingStart = 0.0
     private var peakSpeed = 0.0
@@ -31,14 +43,23 @@ final class ReadyDetector {
 
     init(address: Quat, settings: DetectionSettings) {
         self.address = address
+        self.calibratedAddress = address
         self.settings = settings
     }
 
+    var isStill: Bool { smoothedSpeed < settings.stillSpeed }
+    var isNearAddress: Bool { degreesFromAddress <= settings.addressToleranceDegrees }
+
     func process(_ s: Sample) -> [Event] {
         let speed = smoother.add(t: s.t, speed: s.speed)
-        let still = speed < settings.stillSpeed
-        if still { lastStillTime = s.t }
-        let nearAddress = s.q.angle(to: address) <= settings.addressToleranceDegrees * .pi / 180
+        smoothedSpeed = speed
+        degreesFromAddress = s.q.angle(to: address) * 180 / .pi
+        let still = isStill
+        if still {
+            lastStillTime = s.t
+            lastStillPose = s.q
+        }
+        let nearAddress = isNearAddress
 
         var events: [Event] = []
         switch state {
@@ -59,6 +80,7 @@ final class ReadyDetector {
                 enter(.swinging, at: s.t)
                 // Backdate the start to the last still moment, before smoothing caught up.
                 swingStart = lastStillTime
+                swingStartPose = lastStillPose
                 peakSpeed = 0
                 peakAxisRate = 0
                 track(s)
@@ -103,6 +125,9 @@ final class ReadyDetector {
     private func finish(end: Double, timedOut: Bool) -> Event {
         enter(.notReady, at: end)
         guard peakSpeed >= settings.minPeakSpeed else { return .waggle(at: end) }
+        recentAddresses.append(swingStartPose)
+        if recentAddresses.count > Self.addressMemory { recentAddresses.removeFirst() }
+        address = Quat.average([calibratedAddress] + recentAddresses) ?? calibratedAddress
         return .rep(Rep(
             readyTime: readyTime,
             start: swingStart,

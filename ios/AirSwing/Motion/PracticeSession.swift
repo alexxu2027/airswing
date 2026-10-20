@@ -13,6 +13,8 @@ final class PracticeSession: ObservableObject {
     @Published private(set) var holdProgress = 0.0
     @Published private(set) var holdIsStill = false
     @Published private(set) var detectorState: ReadyDetector.State = .notReady
+    /// Why the detector isn't ready yet, e.g. "Back to address · 40° off".
+    @Published private(set) var readyHint: String?
     @Published private(set) var reps: [Rep] = []
     @Published private(set) var waggleCount = 0
     @Published private(set) var warning: String?
@@ -142,6 +144,12 @@ final class PracticeSession: ObservableObject {
             guard let detector else { return }
             for event in detector.process(s) { handle(event) }
             if detector.state != detectorState { detectorState = detector.state }
+            let hint = Self.hint(for: detector)
+            if hint != readyHint {
+                // Log only the kind of hint, not every change in the degree count.
+                if hint?.prefix(4) != readyHint?.prefix(4) { log("hint: \(hint ?? "none")") }
+                readyHint = hint
+            }
 
         case .idle, .finished:
             break
@@ -175,6 +183,16 @@ final class PracticeSession: ObservableObject {
                 reps.append(rep)
             }
         }
+    }
+
+    private static func hint(for detector: ReadyDetector) -> String? {
+        guard detector.state == .notReady || detector.state == .settling else { return nil }
+        if !detector.isNearAddress {
+            let degrees = Int((detector.degreesFromAddress / 5).rounded() * 5)
+            return "Back to address · \(degrees)° off"
+        }
+        if !detector.isStill { return "Hold still" }
+        return nil
     }
 
     private func checkStall() {

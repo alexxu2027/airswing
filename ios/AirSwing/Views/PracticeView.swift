@@ -92,6 +92,10 @@ struct PracticeView: View {
                 .background(stateColor, in: RoundedRectangle(cornerRadius: 20))
                 .animation(.easeInOut(duration: 0.15), value: practice.detectorState)
 
+            Text(practice.readyHint ?? " ")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.secondary)
+
             if practice.phase == .practicing {
                 HStack {
                     stat("Swings", "\(practice.reps.count)")

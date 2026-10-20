@@ -26,7 +26,7 @@ final class ReadyDetectorTests: XCTestCase {
         XCTAssertEqual(rep.start, 1.5, accuracy: 0.05)
         XCTAssertEqual(rep.end, 3.2, accuracy: 0.15)
         XCTAssertEqual(rep.peakSpeed, 12, accuracy: 1e-9)
-        XCTAssertEqual(rep.readyTime, 1.0, accuracy: 0.05)
+        XCTAssertEqual(rep.readyTime, settings.readyHold, accuracy: 0.05)
         XCTAssertFalse(rep.possiblyClipped)
         XCTAssertFalse(rep.timedOut)
     }
@@ -52,8 +52,37 @@ final class ReadyDetectorTests: XCTestCase {
     }
 
     func testStillWithinToleranceIsReady() {
-        let samples = Synth.samples([Synth.still(1.5, q: Synth.rotated(10))])
+        // M0 address poses varied by up to 24° between swings.
+        let samples = Synth.samples([Synth.still(1.5, q: Synth.rotated(25))])
         XCTAssertEqual(detector().run(samples).readyCount, 1)
+    }
+
+    func testSlightHandTremorStillCountsAsStill() {
+        // Typical M0 address pause: 0.2–0.4 rad/s of drift.
+        let samples = Synth.samples([Synth.turn(1.5, 0.4)])
+        XCTAssertEqual(detector().run(samples).readyCount, 1)
+    }
+
+    func testAddressFollowsWhereUserActuallySwingsFrom() {
+        let pose = Synth.rotated(30)
+        var segments: [Synth.Segment] = []
+        for _ in 0..<4 { segments += [Synth.still(2.5, q: pose)] + swing }
+        segments.append(Synth.still(1.0, q: Synth.rotated(55)))
+
+        let d = detector()
+        XCTAssertEqual(d.run(Synth.samples(segments)).reps.count, 4)
+        // Calibrated identity blended with four swings from 30°.
+        XCTAssertEqual(d.address.angle(to: .identity) * 180 / .pi, 24, accuracy: 1)
+        // 55° was outside tolerance of the original address but is within it now.
+        XCTAssertTrue(d.isNearAddress)
+    }
+
+    func testHintValuesExposed() {
+        let d = detector()
+        _ = d.run(Synth.samples([Synth.still(0.5, q: Synth.rotated(45))]))
+        XCTAssertEqual(d.degreesFromAddress, 45, accuracy: 0.01)
+        XCTAssertFalse(d.isNearAddress)
+        XCTAssertTrue(d.isStill)
     }
 
     func testFastSwingIsFlaggedPossiblyClipped() {
