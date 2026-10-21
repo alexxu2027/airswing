@@ -403,6 +403,64 @@ def analyze_phases(samples, rep, known_axis, st):
             "issues": issues, "axis": axis, "sign": sign, "impact": impact is not None}
 
 
+# MARK: Swing arc (SwingArc.swift)
+
+def _cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def _dot(a, b):
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _unit(a):
+    n = math.sqrt(_dot(a, a))
+    return (a[0] / n, a[1] / n, a[2] / n)
+
+
+def q_rotate(q, v):
+    w, qv = q[0], q[1:]
+    t = tuple(2 * c for c in _cross(qv, v))
+    c = _cross(qv, t)
+    return (v[0] + w * t[0] + c[0], v[1] + w * t[1] + c[1], v[2] + w * t[2] + c[2])
+
+
+def swing_arc(samples, phases):
+    """(t, angle, offPlane) per sample; the backswing turns positive. None if there's no clear plane."""
+    if len(samples) < 5:
+        return None
+    world = [q_rotate(s.q, (s.rx, s.ry, s.rz)) for s in samples]
+    peak = world[first_max([_dot(x, x) for x in world])]
+    total = [0.0, 0.0, 0.0]
+    for x in world:
+        k = 1 if _dot(x, peak) >= 0 else -1
+        total = [total[i] + k * x[i] for i in range(3)]
+    if _dot(total, total) == 0:
+        return None
+    n = _unit(total)
+    other = [0.0, 0.0, 0.0]
+    other[min(range(3), key=lambda i: abs(n[i]))] = 1.0
+    u = _unit(_cross(n, other))
+    v = _cross(n, u)
+    q0 = samples[0].q
+    pointer = q_rotate((q0[0], -q0[1], -q0[2], -q0[3]), u)
+    points, prev = [], None
+    for s in samples:
+        p = q_rotate(s.q, pointer)
+        a = math.atan2(_dot(p, v), _dot(p, u))
+        if prev is not None:
+            while a - prev > math.pi:
+                a -= 2 * math.pi
+            while a - prev < -math.pi:
+                a += 2 * math.pi
+        prev = a
+        points.append((s.t, a, math.asin(max(-1.0, min(1.0, _dot(p, n))))))
+    top = min(points, key=lambda x: abs(x[0] - phases["top"]))
+    if top[1] < 0:
+        points = [(t, -a, -o) for t, a, o in points]
+    return points
+
+
 # MARK: Replay (SessionReplay.swift)
 
 def replay(samples, st, practice_swing):
@@ -505,7 +563,9 @@ def plot(path, name, samples, events, st, reps):
     import matplotlib.pyplot as plt
 
     n = len(reps)
-    fig, axes = plt.subplots(1 + n, 1, figsize=(12, 3 + 2.4 * n), squeeze=False)
+    fig, axes = plt.subplots(1 + n, 2, figsize=(14, 3 + 2.4 * n), squeeze=False,
+                             gridspec_kw={"width_ratios": [5, 1]})
+    axes[0][1].axis("off")
     ax = axes[0][0]
     t = [s.t for s in samples]
     ax.plot(t, [s.speed for s in samples], lw=0.6, color="#555")
@@ -536,6 +596,23 @@ def plot(path, name, samples, events, st, reps):
         if i == 1:
             ax.legend(loc="upper left", fontsize=7)
             ax2.legend(loc="upper right", fontsize=7)
+        arc_ax = axes[i][1]
+        arc_ax.axis("off")
+        arc_ax.set_aspect("equal")
+        p = a["phases"]
+        arc = swing_arc(window(samples, p["start"], r.end), p) if p else None
+        if arc:
+            def xy(points):
+                rs = [min(1.4, max(0.6, 1 - o)) for _, _, o in points]
+                return ([-r_ * math.sin(an) for r_, (_, an, _) in zip(rs, points)],
+                        [-r_ * math.cos(an) for r_, (_, an, _) in zip(rs, points)])
+            top_i = min(range(len(arc)), key=lambda j: abs(arc[j][0] - p["top"]))
+            end_i = max(top_i, min(range(len(arc)), key=lambda j: abs(arc[j][0] - p["downswingEnd"])))
+            for seg, color, width in ((arc[end_i:], "#f3c1a8", 2), (arc[: top_i + 1], "#999", 2.5), (arc[top_i: end_i + 1], "#e0672f", 3)):
+                arc_ax.plot(*xy(seg), color=color, lw=width)
+            arc_ax.set_xlim(-1.5, 1.5)
+            arc_ax.set_ylim(-1.5, 1.5)
+            arc_ax.set_title(f"turn {math.degrees(arc[top_i][1]):.0f}°", fontsize=9)
     fig.tight_layout()
     fig.savefig(path, dpi=90)
     plt.close(fig)
