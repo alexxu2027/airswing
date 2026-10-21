@@ -41,6 +41,21 @@ struct SwingDetailView: View {
                 Text("Blue: rotation on the swing axis (backswing negative, downswing positive). Grey: total rotation speed.")
             }
 
+            if let phases = shownPhases, !samples.isEmpty,
+               let arc = SwingArc.make(SwingAnalyzer.window(samples, from: phases.start, to: max(rep.end, phases.downswingEnd)),
+                                       phases: phases) {
+                Section {
+                    SwingArcView(arc: arc)
+                        .frame(maxWidth: 260)
+                        .frame(maxWidth: .infinity)
+                    row("Backswing turn", String(format: "%.0f°", arc.backswingDegrees))
+                } header: {
+                    Text("Swing arc")
+                } footer: {
+                    Text("Where the club pointed through the swing, seen face-on, from the hand's rotation: grey backswing, coloured downswing to impact, faint follow-through. It shows the swing's shape and length, not a measured club path.")
+                }
+            }
+
             Section("Tempo") {
                 if let p = draft ?? rep.effectivePhases {
                     row("Tempo", String(format: "%.2f : 1", p.tempoRatio))

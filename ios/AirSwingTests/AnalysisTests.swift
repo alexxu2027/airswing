@@ -225,3 +225,31 @@ final class PersistenceTests: XCTestCase {
         XCTAssertTrue(lines[1].hasPrefix("1,unreviewed,0.000,1.000,1.400,1.000,0.400,2.500,manual,yes"), String(lines[1]))
     }
 }
+
+final class SwingArcTests: XCTestCase {
+    /// A swing turning about one fixed axis: 0.9 s back at 3 rad/s (155°), then 0.3 s down at 12 rad/s.
+    private func planarSwing() -> [Sample] {
+        var samples: [Sample] = []
+        var angle = 0.0
+        for i in 0..<60 {
+            let rate = i < 45 ? -3.0 : 12.0
+            let half = angle / 2
+            samples.append(Sample(t: Double(i) / 50, q: Quat(w: cos(half), x: 0, y: sin(half), z: 0),
+                                  rx: 0, ry: rate, rz: 0, ax: 0, ay: 0, az: 0, sensor: "right"))
+            angle += rate / 50
+        }
+        return samples
+    }
+
+    func testPlanarSwingTurnsBackAndThrough() throws {
+        let samples = planarSwing()
+        let arc = try XCTUnwrap(SwingArc.make(samples, phases: SwingPhases(start: 0, top: 0.9, downswingEnd: 1.12)))
+        XCTAssertEqual(arc.points.count, samples.count)
+        XCTAssertEqual(arc.points[0].angle, 0, accuracy: 1e-9)
+        XCTAssertEqual(arc.backswingDegrees, 2.7 * 180 / .pi, accuracy: 1e-6, "45 samples at 3 rad/s turn 2.7 rad")
+        XCTAssertGreaterThan(arc.backswingDegrees, 0, "the backswing is the positive direction")
+        XCTAssertLessThan(arc.points.map { abs($0.offPlane) }.max() ?? 1, 1e-6, "a single-axis swing stays in its plane")
+        // The downswing turns back past address into the follow-through.
+        XCTAssertLessThan(try XCTUnwrap(arc.points.last).angle, 0)
+    }
+}

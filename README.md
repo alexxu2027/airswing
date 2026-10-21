@@ -35,6 +35,8 @@ All metrics describe a handheld shadow-swing gesture, not club or ball performan
 
 **In-glove sessions (real club):** the downswing ends at **impact**, found as the biggest jump in acceleration between two samples within 0.1 s before to 0.15 s after peak swing-axis rotation. With no clear impact (practice swings, misses) it ends at peak rotation, using the middle of the peak when the sensor clips. Glove sessions use their own detection settings (`DetectionSettings.glove`); the sliders in Settings apply to handheld sessions only.
 
+**Swing arc:** after each swing the Practice screen shows its tempo, backswing and downswing times, how far the club turned to the top, and a face-on arc of where the club pointed: grey backswing, coloured downswing to impact, faint follow-through. It comes from the hand's rotation alone (with the earbud in the lead-hand glove the hand turns with the club), so it shows the swing's shape and length, not a measured club path: one earbud can't tell where the hands move. Each swing's detail screen shows it too.
+
 **Baseline comparison:** both swings are stretched to the same timeline (backswing to 60%, downswing to 40%) and compared by shape, as a 0–100% match, separately from speed and tempo. It measures similarity to *your* reference swing, not swing quality.
 
 The session saves automatically if the AirPods disconnect or you leave the app. The phone screen stays on during a session.

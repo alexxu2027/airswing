@@ -119,7 +119,7 @@ struct PracticeView: View {
     }
 
     private var swingPanel: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 20) {
             if practice.phase == .practiceSwing {
                 stepHeader("Step 2 of 2", "One slow practice swing")
                 Text("This teaches AirSwing which way your swing turns.")
@@ -128,72 +128,101 @@ struct PracticeView: View {
                     .font(.footnote)
             }
 
-            Text(stateText)
-                .font(.system(size: 44, weight: .heavy))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, minHeight: 150)
-                .background(stateColor, in: RoundedRectangle(cornerRadius: 20))
-                .animation(.easeInOut(duration: 0.15), value: practice.detectorState)
-
-            Text(practice.readyHint ?? " ")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(.secondary)
+            statusBar
 
             if practice.phase == .practicing {
-                lastSwingCard
-                HStack {
-                    stat("Swings", "\(practice.reps.count)")
-                    stat("Median", practice.stats.medianTempo.map { String(format: "%.1f:1", $0) } ?? "—")
-                    stat("Waggles", "\(practice.waggleCount)")
-                    stat("Marks", "\(practice.markCount)")
-                }
+                lastSwing
+                if !practice.reps.isEmpty { sessionStrip }
             }
-
-            Button {
-                practice.mark()
-            } label: {
-                Label("Mark", systemImage: "flag.fill")
-                    .font(.title3.bold()).frame(maxWidth: .infinity).padding(.vertical, 8)
-            }
-            .buttonStyle(.bordered)
-            Text("Logs a numbered marker in the recording, e.g. for a swing that wasn't detected.")
-                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
 
             warningBanner
-            stopButton
+            HStack(spacing: 12) {
+                Button {
+                    practice.mark()
+                } label: {
+                    Label(practice.markCount > 0 ? "Mark · \(practice.markCount)" : "Mark", systemImage: "flag.fill")
+                        .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 10)
+                }
+                .buttonStyle(.bordered)
+                stopButton
+            }
         }
     }
 
-    @ViewBuilder private var lastSwingCard: some View {
+    /// Readable from a few steps away, with the phone on the ground.
+    private var statusBar: some View {
+        HStack(spacing: 10) {
+            Text(stateText).font(.system(size: 30, weight: .heavy, design: .rounded))
+            Spacer(minLength: 8)
+            if let hint = practice.readyHint {
+                Text(hint).font(.subheadline.weight(.semibold)).multilineTextAlignment(.trailing)
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, minHeight: 76)
+        .background(stateColor, in: RoundedRectangle(cornerRadius: 20))
+        .animation(.easeInOut(duration: 0.15), value: practice.detectorState)
+    }
+
+    @ViewBuilder private var lastSwing: some View {
         if let rep = practice.reps.last {
-            VStack(spacing: 6) {
-                if let p = rep.effectivePhases {
-                    Text(String(format: "%.1f : 1", p.tempoRatio))
-                        .font(.system(size: 40, weight: .bold).monospacedDigit())
-                        .foregroundStyle(tempoColor(p.tempoRatio))
-                    Text(String(format: "Back %.2f s · Down %.2f s", p.backswing, p.downswing))
-                        .font(.subheadline).foregroundStyle(.secondary)
-                    if let target = settings.values.activeTarget {
-                        Text(String(format: "Target %.1f : 1", target)).font(.caption).foregroundStyle(.secondary)
+            let phases = rep.effectivePhases
+            VStack(spacing: 18) {
+                VStack(spacing: 0) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(phases.map { String(format: "%.1f", $0.tempoRatio) } ?? "—")
+                            .font(.system(size: 96, weight: .bold, design: .rounded).monospacedDigit())
+                            .foregroundStyle(phases.map { tempoColor($0.tempoRatio) } ?? .secondary)
+                        if phases != nil {
+                            Text(": 1").font(.system(size: 32, weight: .semibold, design: .rounded)).foregroundStyle(.secondary)
+                        }
                     }
-                    if let baseline = practice.baseline, let c = Comparison.make(rep, to: baseline) {
-                        Text(String(format: "%.0f%% shape match to ", c.shapeMatch) + baseline.name)
-                            .font(.subheadline)
+                    Text(phases == nil ? (rep.analysis?.issues.first ?? "Tempo unclear")
+                                       : settings.values.activeTarget.map { String(format: "TEMPO · TARGET %.1f : 1", $0) } ?? "TEMPO")
+                        .font(phases == nil ? Font.footnote : Font.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                if let phases {
+                    HStack {
+                        metric("Back", String(format: "%.2f s", phases.backswing))
+                        metric("Down", String(format: "%.2f s", phases.downswing))
+                        metric("Turn", practice.lastArc.map { String(format: "%.0f°", $0.backswingDegrees) } ?? "—")
                     }
-                } else {
-                    Text("Tempo unclear").font(.title2.bold())
-                    Text(rep.analysis?.issues.first ?? "Phases couldn't be found reliably.")
-                        .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                }
+
+                if let arc = practice.lastArc {
+                    SwingArcView(arc: arc).frame(maxWidth: 280)
+                }
+
+                if let baseline = practice.baseline, let c = Comparison.make(rep, to: baseline) {
+                    Text(String(format: "%.0f%% shape match to ", c.shapeMatch) + baseline.name)
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 if rep.possiblyClipped {
-                    Text(inGlove ? "This swing may have exceeded the sensor's range, so its peaks may be cut off."
+                    Text(inGlove ? "Peak rotation went past the sensor's range."
                                  : "This swing may have exceeded the sensor's range. Swing a little slower.")
                         .font(.footnote).foregroundStyle(.orange).multilineTextAlignment(.center)
                 }
             }
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        } else {
+            Text("Your tempo appears here after each swing.")
+                .font(.subheadline).foregroundStyle(.secondary)
+                .padding(.vertical, 40)
+        }
+    }
+
+    private var sessionStrip: some View {
+        VStack(spacing: 6) {
+            TempoStrip(tempos: practice.reps.map(\.tempoRatio), target: settings.values.activeTarget)
+            HStack {
+                Text(practice.reps.count == 1 ? "1 swing" : "\(practice.reps.count) swings")
+                Spacer()
+                Text(practice.stats.medianTempo.map { String(format: "Median %.1f : 1", $0) } ?? "Median —")
+            }
+            .font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -251,11 +280,10 @@ struct PracticeView: View {
         Button(role: .destructive) {
             practice.stop()
         } label: {
-            Text("Stop and save").font(.title3.bold()).frame(maxWidth: .infinity).padding(.vertical, 8)
+            Text("Stop & save").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 10)
         }
         .buttonStyle(.borderedProminent)
         .tint(.red)
-        .padding(.top, 8)
     }
 
     private func stepHeader(_ step: String, _ title: String) -> some View {
@@ -265,10 +293,10 @@ struct PracticeView: View {
         }
     }
 
-    private func stat(_ label: String, _ value: String) -> some View {
-        VStack {
-            Text(value).font(.title2.bold()).monospacedDigit()
-            Text(label).font(.caption).foregroundStyle(.secondary)
+    private func metric(_ label: String, _ value: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value).font(.title3.weight(.semibold)).monospacedDigit()
+            Text(label.uppercased()).font(.caption2.weight(.medium)).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
     }

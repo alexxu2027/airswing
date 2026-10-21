@@ -18,6 +18,8 @@ final class PracticeSession: ObservableObject {
     @Published private(set) var reps: [Rep] = []
     @Published private(set) var waggleCount = 0
     @Published private(set) var markCount = 0
+    /// Face-on arc of the latest swing, when its phases were found.
+    @Published private(set) var lastArc: SwingArc?
     @Published private(set) var warning: String?
     @Published private(set) var lastSaved: SessionRecord?
 
@@ -73,6 +75,7 @@ final class PracticeSession: ObservableObject {
         reps.removeAll()
         waggleCount = 0
         markCount = 0
+        lastArc = nil
         warning = nil
         lastSaved = nil
         calibration = nil
@@ -209,6 +212,9 @@ final class PracticeSession: ObservableObject {
 
             let rep = SwingAnalyzer.analyzed(detected, samples: samples, calibration: calibration, settings: detection)
             reps.append(rep)
+            lastArc = (rep.effectivePhases ?? rep.analysis?.phases).flatMap { p in
+                SwingArc.make(SwingAnalyzer.window(samples, from: p.start, to: detected.end), phases: p)
+            }
             if let tempo = rep.tempoRatio {
                 log(String(format: "tempo %.2f:1", tempo), at: detected.end)
                 if settings.values.speakTempo { say(String(format: "%.1f", tempo)) }
