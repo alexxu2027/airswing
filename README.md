@@ -21,6 +21,7 @@ All metrics describe a handheld shadow-swing gesture, not club or ball performan
 | `.github/workflows/ios-build.yml` | Runs the tests, then builds an unsigned `.ipa` on a GitHub-hosted Mac |
 | `viewer/` | Browser page for checking recordings, published to GitHub Pages |
 | `docs/feasibility.md` | M0 results |
+| `tools/analyze.py` | Replays recordings through a Python port of the detector, for tuning; see below |
 
 ## How a session works
 
@@ -31,6 +32,8 @@ All metrics describe a handheld shadow-swing gesture, not club or ball performan
 4. **Stop and save**, then open the session in **Sessions** for median tempo, spread, and feedback. Swipe a swing right (real swing) or left (not a swing), or tap it to see its phase chart, adjust the phases by hand, or save it as your **baseline**.
 
 **How tempo is measured:** the top of the backswing is where rotation on your swing axis reverses; the downswing ends when that rotation falls below 30% of its peak. Tempo = backswing time ÷ downswing time. A swing with a data gap, no clear reversal, or odd timing is marked unclear and left out of statistics. A **tempo drill** target (Settings or Practice) is optional and yours to choose.
+
+**In-glove sessions (real club):** the downswing ends at **impact**, found as the biggest jump in acceleration between two samples within 0.1 s before to 0.15 s after peak swing-axis rotation. With no clear impact (practice swings, misses) it ends at peak rotation, using the middle of the peak when the sensor clips. Glove sessions use their own detection settings (`DetectionSettings.glove`); the sliders in Settings apply to handheld sessions only.
 
 **Baseline comparison:** both swings are stretched to the same timeline (backswing to 60%, downswing to 40%) and compared by shape, as a 0–100% match, separately from speed and tempo. It measures similarity to *your* reference swing, not swing quality.
 
@@ -79,3 +82,14 @@ Timestamps are seconds since the session started; rotation rate is rad/s; user a
 ## Check recordings in the browser
 
 Open the viewer at **https://alexxu2027.github.io/airswing/** and drop in one or more `samples.csv` files. It shows sample rate, gaps, estimated dropout, a pass/fail against the data-quality targets, and rotation-rate and sample-interval charts. Files are processed in the browser and never uploaded.
+
+## Tune detection on recordings
+
+`tools/analyze.py` replays session folders (or `samples.csv` files) through a Python port of the app's detector and prints every swing's phases, tempo and tuning signals, checks **Mark** events against detected swings, and saves a plot per session (needs `pip install matplotlib`):
+
+```
+python tools/analyze.py path/to/session-folder [more folders] --truth 10
+python tools/analyze.py path/to/session-folder --set impactJump=3 --set minPeakSpeed=6
+```
+
+`--fixture NAME` copies a recording into `ios/AirSwingTests/Fixtures/NAME` with the swings the port found. `ReplayFixtureTests` replays every fixture through the Swift detector in CI and fails if they differ, so the port and the app can't drift apart. Change both together.

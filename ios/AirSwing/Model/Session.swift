@@ -60,6 +60,18 @@ struct DetectionSettings: Codable, Equatable {
     var maxSwingDuration = 6.0
     /// Any axis at or above this is flagged as possibly clipped (rad/s). M0 found a likely 17.45 limit.
     var clipSpeed = 16.5
+    /// Glove mode only: a jump in user acceleration between consecutive samples at or above this (g),
+    /// near peak rotation, is impact, and ends the downswing. Nil keeps the shadow-swing rule.
+    /// Optional so sessions saved before glove mode still load.
+    var impactJump: Double? = nil
+
+    /// Starting point for an earbud in a glove swinging a real club: phases end at impact
+    /// rather than when rotation fades. To be tuned on real-club recordings.
+    static let glove: DetectionSettings = {
+        var s = DetectionSettings()
+        s.impactJump = 2.0
+        return s
+    }()
 }
 
 /// How the earbud was carried and what was swung, so recordings can be told apart later.

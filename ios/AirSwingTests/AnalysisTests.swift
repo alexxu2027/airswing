@@ -58,6 +58,38 @@ final class PhaseDetectorTests: XCTestCase {
         XCTAssertTrue(a.showsTempo)
     }
 
+    // MARK: Glove mode
+
+    /// 1.0 s backswing, then a flat 0.4 s downswing peak (like a clipped sensor), with an optional
+    /// acceleration jump at sample `impactAt`.
+    private func gloveSwing(impactAt: Int?) -> PhaseAnalysis {
+        var samples = Synth.samples([Synth.turn(1.0, -3), Synth.turn(0.4, 12), Synth.turn(0.3, -2)])
+        if let impactAt { samples[impactAt].ax = 3 }
+        return PhaseDetector.analyze(samples, rep: rep(samples), axis: (1, 1), settings: .glove)
+    }
+
+    func testGloveDownswingEndsAtImpact() {
+        let a = gloveSwing(impactAt: 65)
+        let p = try! XCTUnwrap(a.phases)
+        XCTAssertEqual(p.downswingEnd, 1.3, accuracy: 1e-9)
+        XCTAssertEqual(p.backswing, 1.0, accuracy: 0.03)
+        XCTAssertEqual(a.confidence, .high, "\(a.issues)")
+        XCTAssertEqual(a.algorithmVersion, PhaseDetector.gloveVersion)
+    }
+
+    func testGloveWithoutImpactEndsAtMiddleOfPeak() {
+        let a = gloveSwing(impactAt: nil)
+        // The flat peak runs from 1.0 to 1.38 s; its middle sample is at 1.18 s.
+        XCTAssertEqual(try XCTUnwrap(a.phases).downswingEnd, 1.18, accuracy: 1e-9)
+        XCTAssertTrue(a.issues.contains { $0.contains("No impact") })
+        XCTAssertTrue(a.showsTempo)
+    }
+
+    func testGloveIgnoresJumpsFarFromPeak() {
+        // A jump during the backswing is not impact.
+        XCTAssertEqual(try XCTUnwrap(gloveSwing(impactAt: 25).phases).downswingEnd, 1.18, accuracy: 1e-9)
+    }
+
     func testDirectionChangesInBackswingLowerConfidence() {
         let a = analyze([Synth.turn(0.4, -3), Synth.turn(0.2, 2), Synth.turn(0.5, -3), Synth.turn(0.4, 12), Synth.turn(0.3, -2)])
         XCTAssertEqual(a.confidence, .low)

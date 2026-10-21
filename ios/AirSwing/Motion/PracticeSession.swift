@@ -66,8 +66,8 @@ final class PracticeSession: ObservableObject {
     func start() {
         guard !isActive else { return }
         motion.start()
-        detection = settings.values.detection
         setup = settings.values.setup ?? RecordingSetup()
+        detection = setup.mount == .glove ? .glove : settings.values.detection
         samples.removeAll()
         events.removeAll()
         reps.removeAll()

@@ -6,7 +6,7 @@ struct SwingPhases: Codable, Equatable {
     var start: Double
     /// Top of the backswing: where rotation on the swing axis reverses into the downswing.
     var top: Double
-    /// End of the fast part of the downswing.
+    /// End of the downswing: impact in glove mode, otherwise the end of its fast part.
     var downswingEnd: Double
 
     var backswing: Double { top - start }
@@ -59,6 +59,10 @@ extension Rep {
 
 enum PhaseDetector {
     static let version = "phases-1"
+    static let gloveVersion = "phases-glove-1"
+    /// Glove mode looks for impact from this long before peak rotation to this long after it (s).
+    static let impactBefore = 0.10
+    static let impactAfter = 0.15
     /// The downswing ends when swing-axis rotation falls below this fraction of its peak.
     static let downswingEndFraction = 0.3
     /// A backswing must reach at least this rotation rate the opposite way (rad/s).
@@ -96,7 +100,17 @@ enum PhaseDetector {
         var confidence = PhaseConfidence.high
 
         let end: Double
-        if let j = ((p + 1)..<v.count).first(where: { v[$0] <= downswingEndFraction * v[p] }) {
+        if let jump = settings.impactJump {
+            // Real club: the downswing ends at impact. Without a clear impact (no ball, a miss),
+            // peak swing-axis rotation is the closest stand-in.
+            let peak = plateauCenter(v, around: p)
+            if let i = impactIndex(samples, after: k, near: t[peak], jump: jump) {
+                end = t[i]
+            } else {
+                end = t[peak]
+                issues.append("No impact found, so the downswing ends at peak rotation.")
+            }
+        } else if let j = ((p + 1)..<v.count).first(where: { v[$0] <= downswingEndFraction * v[p] }) {
             end = crossing(t, v, from: j - 1, level: downswingEndFraction * v[p])
         } else {
             end = t[t.count - 1]
@@ -128,8 +142,35 @@ enum PhaseDetector {
             confidence = min(confidence, .medium)
         }
 
-        return PhaseAnalysis(phases: phases, confidence: confidence, issues: issues,
-                             axis: axis, sign: sign, algorithmVersion: version)
+        return PhaseAnalysis(phases: phases, confidence: confidence, issues: issues, axis: axis, sign: sign,
+                             algorithmVersion: settings.impactJump == nil ? version : gloveVersion)
+    }
+
+    /// Index of the largest sample-to-sample change in user acceleration within the impact window
+    /// around `peakTime`, after the top (index `top`), if it reaches `jump` g.
+    static func impactIndex(_ samples: [Sample], after top: Int, near peakTime: Double, jump: Double) -> Int? {
+        var best: (i: Int, jump: Double)?
+        for i in max(top + 1, 1)..<samples.count {
+            let dt = samples[i].t - peakTime
+            guard dt >= -impactBefore else { continue }
+            guard dt <= impactAfter else { break }
+            let a = samples[i], b = samples[i - 1]
+            let d = ((a.ax - b.ax) * (a.ax - b.ax) + (a.ay - b.ay) * (a.ay - b.ay) + (a.az - b.az) * (a.az - b.az))
+                .squareRoot()
+            if d > (best?.jump ?? 0) { best = (i, d) }
+        }
+        guard let best, best.jump >= jump else { return nil }
+        return best.i
+    }
+
+    /// Middle of the run of samples around `p` that are within 2% of its value. When the sensor
+    /// clips, the peak is a flat run and its first sample would put the peak too early.
+    static func plateauCenter(_ v: [Double], around p: Int) -> Int {
+        let level = v[p] * 0.98
+        var lo = p, hi = p
+        while lo > 0, v[lo - 1] >= level { lo -= 1 }
+        while hi + 1 < v.count, v[hi + 1] >= level { hi += 1 }
+        return (lo + hi) / 2
     }
 
     /// Time at which v crosses `level` between index i and i + 1, by linear interpolation.

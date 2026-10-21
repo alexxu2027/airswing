@@ -61,7 +61,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Swing detection")
                 } footer: {
-                    Text("Changes apply to the next session. Saved sessions keep the settings they were recorded with.")
+                    Text("For handheld sessions. In-glove sessions use their own settings, tuned for a real club. Changes apply to the next session. Saved sessions keep the settings they were recorded with.")
                 }
 
                 Section("Help") {

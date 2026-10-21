@@ -1,0 +1,25 @@
+{
+  "practiceSwing": false,
+  "settings": {
+    "stillSpeed": 1.0,
+    "readyHold": 0.3,
+    "addressToleranceDegrees": 60.0,
+    "swingStartSpeed": 1.0,
+    "minPeakSpeed": 3.0,
+    "finishHold": 0.5,
+    "maxSwingDuration": 6.0,
+    "clipSpeed": 16.5
+  },
+  "swings": [
+    {
+      "start": 3.58377,
+      "end": 9.58377,
+      "peakTime": 6.30377,
+      "possiblyClipped": false,
+      "top": 4.796569028847076,
+      "downswingEnd": 5.252138575506682,
+      "confidence": "high"
+    }
+  ],
+  "waggles": 9
+}
