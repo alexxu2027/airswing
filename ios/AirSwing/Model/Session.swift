@@ -62,6 +62,25 @@ struct DetectionSettings: Codable, Equatable {
     var clipSpeed = 16.5
 }
 
+/// How the earbud was carried and what was swung, so recordings can be told apart later.
+struct RecordingSetup: Codable, Equatable {
+    enum Mount: String, Codable, CaseIterable {
+        case handheld, glove
+    }
+
+    var mount = Mount.handheld
+    var club = ""
+    var note = ""
+
+    /// "Glove · 7 iron", or empty for a plain handheld session.
+    var label: String {
+        let club = club.trimmingCharacters(in: .whitespaces)
+        return [mount == .glove ? "Glove" : nil, club.isEmpty ? nil : club]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+    }
+}
+
 struct SessionEvent: Codable, Equatable {
     var t: Double
     var text: String
@@ -83,6 +102,8 @@ struct SessionRecord: Codable, Equatable, Identifiable {
     var device = ""
     var sensors: [String] = []
     var settings = DetectionSettings()
+    /// Optional so sessions saved before glove recording still load.
+    var setup: RecordingSetup? = nil
     var calibration: Calibration? = nil
     var reps: [Rep] = []
     var events: [SessionEvent] = []
@@ -103,6 +124,12 @@ struct SessionRecord: Codable, Equatable, Identifiable {
             "gap_threshold_s=\(QualityReport.gapThreshold)",
             "units: timestamp seconds since session start; rotation rad/s; user acceleration g",
         ]
+        if let setup {
+            func clean(_ s: String) -> String { s.replacingOccurrences(of: "\n", with: " ") }
+            lines.append("mount=\(setup.mount.rawValue)")
+            lines.append("club=\(clean(setup.club))")
+            lines.append("note=\(clean(setup.note))")
+        }
         for e in events {
             lines.append("event,\(String(format: "%.4f", e.t)),\(e.text.replacingOccurrences(of: ",", with: ";"))")
         }

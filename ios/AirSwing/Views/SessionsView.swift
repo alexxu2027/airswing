@@ -133,6 +133,15 @@ struct SessionDetailView: View {
                 Text("Swipe right if it was a real swing, left if it wasn't, or tap a swing to see its phases.")
             }
 
+            if let setup = s.setup {
+                Section("Setup") {
+                    row("Earbud", setup.mount == .glove ? "In glove" : "Handheld")
+                    row("Club", setup.club.isEmpty ? "—" : setup.club)
+                    if !setup.note.isEmpty { row("Note", setup.note) }
+                    row("Marks", "\(s.events.filter { $0.text.hasPrefix("mark ") }.count)")
+                }
+            }
+
             Section("Data quality") {
                 row("Length", String(format: "%.1f s", s.quality.duration))
                 row("Sample rate", String(format: "%.1f Hz", s.quality.effectiveHz))

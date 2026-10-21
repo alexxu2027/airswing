@@ -74,6 +74,8 @@ timestamp_s,qw,qx,qy,qz,rot_x,rot_y,rot_z,acc_x,acc_y,acc_z,sensor
 
 Timestamps are seconds since the session started; rotation rate is rad/s; user acceleration is in g, as reported by Core Motion. `sensor` is which earbud reported it.
 
+**Recording setup:** before starting, choose whether the earbud is handheld or in a glove, and optionally the club and a note. They're remembered for the next session, shown in the session name, saved in `session.json` (`setup`), and written to the `samples.csv` header as `# mount=`, `# club=` and `# note=`. During a session, **Mark** logs a numbered `mark N` event, e.g. for a swing the detector missed.
+
 ## Check recordings in the browser
 
 Open the viewer at **https://alexxu2027.github.io/airswing/** and drop in one or more `samples.csv` files. It shows sample rate, gaps, estimated dropout, a pass/fail against the data-quality targets, and rotation-rate and sample-interval charts. Files are processed in the browser and never uploaded.

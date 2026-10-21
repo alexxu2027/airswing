@@ -112,4 +112,42 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertTrue(text.contains("# event,0.5000,ready; steady"))
         XCTAssertTrue(text.contains("# session=\(record.id.uuidString)"))
     }
+
+    func testSetupIsSavedAndWrittenToCSVHeader() throws {
+        let store = SessionStore(root: root)
+        var record = makeRecord()
+        record.setup = RecordingSetup(mount: .glove, club: "7 iron", note: "full swings\nno ball")
+        try store.save(record, samples: [])
+
+        XCTAssertEqual(SessionStore(root: root).sessions[0].setup, record.setup)
+        let text = try String(contentsOf: store.samplesURL(for: record.id), encoding: .utf8)
+        XCTAssertTrue(text.contains("# mount=glove\n"))
+        XCTAssertTrue(text.contains("# club=7 iron\n"))
+        XCTAssertTrue(text.contains("# note=full swings no ball\n"))
+    }
+
+    func testSessionWithoutSetupStillLoads() throws {
+        let store = SessionStore(root: root)
+        let record = makeRecord()
+        try store.save(record, samples: [])
+        let json = try String(contentsOf: store.metadataURL(for: record.id), encoding: .utf8)
+        XCTAssertFalse(json.contains("\"setup\""), "nil setup is left out, like a session saved before it existed")
+        XCTAssertNil(SessionStore(root: root).sessions[0].setup)
+    }
+
+    func testSetupLabel() {
+        XCTAssertEqual(RecordingSetup().label, "")
+        XCTAssertEqual(RecordingSetup(mount: .glove).label, "Glove")
+        XCTAssertEqual(RecordingSetup(mount: .glove, club: " 7 iron ").label, "Glove · 7 iron")
+        XCTAssertEqual(RecordingSetup(club: "Driver").label, "Driver")
+    }
+
+    func testPreferencesSavedBeforeSetupStillLoad() throws {
+        var old = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Preferences())) as! [String: Any]
+        old["tempoTarget"] = 2.5
+        old.removeValue(forKey: "setup")
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        defaults.set(try JSONSerialization.data(withJSONObject: old), forKey: "preferences")
+        XCTAssertEqual(AppSettings(defaults: defaults).values.tempoTarget, 2.5)
+    }
 }

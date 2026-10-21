@@ -17,6 +17,7 @@ final class PracticeSession: ObservableObject {
     @Published private(set) var readyHint: String?
     @Published private(set) var reps: [Rep] = []
     @Published private(set) var waggleCount = 0
+    @Published private(set) var markCount = 0
     @Published private(set) var warning: String?
     @Published private(set) var lastSaved: SessionRecord?
 
@@ -30,6 +31,7 @@ final class PracticeSession: ObservableObject {
     private let speech = AVSpeechSynthesizer()
 
     private(set) var detection = DetectionSettings()
+    private(set) var setup = RecordingSetup()
     private var samples: [Sample] = []
     private var events: [SessionEvent] = []
     private var startUptime = 0.0
@@ -65,10 +67,12 @@ final class PracticeSession: ObservableObject {
         guard !isActive else { return }
         motion.start()
         detection = settings.values.detection
+        setup = settings.values.setup ?? RecordingSetup()
         samples.removeAll()
         events.removeAll()
         reps.removeAll()
         waggleCount = 0
+        markCount = 0
         warning = nil
         lastSaved = nil
         calibration = nil
@@ -81,6 +85,7 @@ final class PracticeSession: ObservableObject {
         holdProgress = 0
         phase = .holdingAddress
         log("session started; connected=\(motion.isConnected) permission=\(motion.authorizationText)")
+        log("setup: mount=\(setup.mount.rawValue) club=\(setup.club) note=\(setup.note)")
 
         UIApplication.shared.isIdleTimerDisabled = true
         stallTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
@@ -94,6 +99,13 @@ final class PracticeSession: ObservableObject {
         phase = .practicing
     }
 
+    /// Logs a numbered marker, e.g. for a swing the detector missed or anything worth finding later.
+    func mark() {
+        guard isActive else { return }
+        markCount += 1
+        log("mark \(markCount)")
+    }
+
     /// Ends the session and saves everything recorded so far.
     func stop(reason: EndReason = .stopped) {
         guard isActive else { return }
@@ -102,12 +114,14 @@ final class PracticeSession: ObservableObject {
         stallTimer = nil
         UIApplication.shared.isIdleTimerDisabled = false
 
+        let date = startedAt.formatted(date: .abbreviated, time: .shortened)
         let record = SessionRecord(
-            name: "Session " + startedAt.formatted(date: .abbreviated, time: .shortened),
+            name: setup.label.isEmpty ? "Session " + date : setup.label + " · " + date,
             startedAt: startedAt,
             device: "\(UIDevice.current.model) iOS \(UIDevice.current.systemVersion)",
             sensors: Array(Set(samples.map(\.sensor))).sorted(),
             settings: detection,
+            setup: setup,
             calibration: calibration,
             reps: reps,
             events: events,

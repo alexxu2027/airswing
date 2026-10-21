@@ -7,6 +7,8 @@ struct Preferences: Codable, Equatable {
     var tempoTargetEnabled = false
     var tempoTarget = 3.0
     var activeBaselineID: UUID? = nil
+    /// Last recording setup, reused for the next session. Optional so older saved preferences still load.
+    var setup: RecordingSetup? = nil
 
     var activeTarget: Double? { tempoTargetEnabled ? tempoTarget : nil }
 }

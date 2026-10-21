@@ -5,6 +5,14 @@ struct PracticeView: View {
     @ObservedObject var motion: MotionSource
     @ObservedObject var settings: AppSettings
 
+    /// The setup for the next session, remembered between launches.
+    private var setup: Binding<RecordingSetup> {
+        Binding(get: { settings.values.setup ?? RecordingSetup() },
+                set: { settings.values.setup = $0 })
+    }
+
+    private var inGlove: Bool { setup.wrappedValue.mount == .glove }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -17,6 +25,7 @@ struct PracticeView: View {
                 }
                 .padding()
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Practice")
         }
     }
@@ -42,12 +51,30 @@ struct PracticeView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Label("Hold one earbud firmly. Put the other in its case.", systemImage: "hand.raised")
-                Label("Slow to moderate swings only, with clear space around you.", systemImage: "exclamationmark.triangle")
-                Label("Stand the phone where you can see and hear it.", systemImage: "iphone")
+                if inGlove {
+                    Label("Fix one earbud in the glove, in the same spot every time. Put the other in its case.", systemImage: "hand.raised")
+                    Label("Clear space around you before swinging a club.", systemImage: "exclamationmark.triangle")
+                    Label("Spoken cues play in the gloved earbud, so watch the phone screen.", systemImage: "iphone")
+                } else {
+                    Label("Hold one earbud firmly. Put the other in its case.", systemImage: "hand.raised")
+                    Label("Slow to moderate swings only, with clear space around you.", systemImage: "exclamationmark.triangle")
+                    Label("Stand the phone where you can see and hear it.", systemImage: "iphone")
+                }
             }
             .font(.subheadline)
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(spacing: 12) {
+                Picker("Earbud", selection: setup.mount) {
+                    Text("Handheld").tag(RecordingSetup.Mount.handheld)
+                    Text("In glove").tag(RecordingSetup.Mount.glove)
+                }
+                .pickerStyle(.segmented)
+                TextField("Club (e.g. 7 iron)", text: setup.club)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Note (e.g. full swings, hitting balls)", text: setup.note)
+                    .textFieldStyle(.roundedBorder)
+            }
 
             VStack(spacing: 12) {
                 Toggle("Tempo drill", isOn: $settings.values.tempoTargetEnabled)
@@ -77,7 +104,8 @@ struct PracticeView: View {
     private var holdPanel: some View {
         VStack(spacing: 20) {
             stepHeader("Step 1 of 2", "Set your address")
-            Text("Hold the earbud the way you'd grip a club at address, and keep still.")
+            Text(inGlove ? "Take your address with the club and keep still."
+                         : "Hold the earbud the way you'd grip a club at address, and keep still.")
                 .multilineTextAlignment(.center)
             ProgressView(value: practice.holdProgress)
                 .scaleEffect(y: 3)
@@ -117,8 +145,19 @@ struct PracticeView: View {
                     stat("Swings", "\(practice.reps.count)")
                     stat("Median", practice.stats.medianTempo.map { String(format: "%.1f:1", $0) } ?? "—")
                     stat("Waggles", "\(practice.waggleCount)")
+                    stat("Marks", "\(practice.markCount)")
                 }
             }
+
+            Button {
+                practice.mark()
+            } label: {
+                Label("Mark", systemImage: "flag.fill")
+                    .font(.title3.bold()).frame(maxWidth: .infinity).padding(.vertical, 8)
+            }
+            .buttonStyle(.bordered)
+            Text("Logs a numbered marker in the recording, e.g. for a swing that wasn't detected.")
+                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
 
             warningBanner
             stopButton
@@ -147,7 +186,8 @@ struct PracticeView: View {
                         .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
                 if rep.possiblyClipped {
-                    Text("This swing may have exceeded the sensor's range. Swing a little slower.")
+                    Text(inGlove ? "This swing may have exceeded the sensor's range, so its peaks may be cut off."
+                                 : "This swing may have exceeded the sensor's range. Swing a little slower.")
                         .font(.footnote).foregroundStyle(.orange).multilineTextAlignment(.center)
                 }
             }
